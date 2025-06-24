@@ -4,9 +4,7 @@
 [![language](https://img.shields.io/badge/language-C%23-239120)](https://learn.microsoft.com/en-us/dotnet/csharp/tour-of-csharp/overview)
 [![OS](https://img.shields.io/badge/OS-Linux-0078D4)](https://kernel.org)
 [![CPU](https://img.shields.io/badge/CPU-x86__64-FF8C00)](#dependencies)
-[![GitHub release](https://img.shields.io/github/v/release/piestyx/QudLogExporter)](https://github.com/piestyx/QudLogExporter/releases)
-[![GitHub release date](https://img.shields.io/github/release-date/piestyx/QudLogExporter)](https://github.com/piestyx/QudLogExporter/releases)
-[![GitHub last commit](https://img.shields.io/github/last-commit/piestyx/QudLogExporter)](https://github.com/piestyx/QudLogExporter/commits/main)
+[![GitHub last commit](https://img.shields.io/github/last-commit/piestyx/game-mods)](https://github.com/piestyx/game-mods/commits/main/)
 [![Getting Started](https://img.shields.io/badge/getting_started-guide-1D76DB)](#setup)
 [![Free for Non-Commercial Use](https://img.shields.io/badge/free_for_non_commercial_use-brightgreen)](#license)
 
