@@ -1,0 +1,11 @@
+# Normalize line endings across OSes
+* text=auto
+
+# Prevent these from being included in `git archive`
+*.log export-ignore
+.env export-ignore
+.env.template export-ignore
+build.sh export-ignore
+
+# Treat ModAssemblies as vendor blobs
+ModAssemblies/* linguist-vendored

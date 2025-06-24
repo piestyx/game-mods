@@ -1,0 +1,8 @@
+{
+  "ID": "QudLogExporter",
+  "Title": "Qud Log Exporter",
+  "Author": "piestyx",
+  "Version": "1.0.0",
+  "Description": "Logs all in-game player messages to a text file for AI analysis.",
+  "Harmony": true
+}
