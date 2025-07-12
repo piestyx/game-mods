@@ -1,0 +1,8 @@
+{
+  "ID": "QudStateExtractor",
+  "Title": "Qud State Exporter",
+  "Author": "piestyx",
+  "Version": "1.0.0",
+  "Description": "Logs world and player state to separate json files for AI gameplay fine tuning.",
+  "Harmony": true
+}
