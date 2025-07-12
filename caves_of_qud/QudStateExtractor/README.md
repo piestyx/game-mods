@@ -1,4 +1,4 @@
-![Qud Log Exporter Banner](assets/README-banner.png)
+![Qud State Extractor Banner](assets/README-banner.png)
 
 [![.NET](https://img.shields.io/badge/.NET-6.0%2C%207.0%2C%208.0%2C%209.0-512BD4)](https://learn.microsoft.com/en-us/dotnet/)
 [![language](https://img.shields.io/badge/language-C%23-239120)](https://learn.microsoft.com/en-us/dotnet/csharp/tour-of-csharp/overview)
@@ -8,7 +8,7 @@
 [![Getting Started](https://img.shields.io/badge/getting_started-guide-1D76DB)](#setup)
 [![Free for Non-Commercial Use](https://img.shields.io/badge/free_for_non_commercial_use-brightgreen)](#license)
 
-# Qud Log Exporter
+# Qud State Extractor
 
 **Game Website**: [Caves of Qud](https://www.cavesofqud.com/)  
 **Official Twitter/X**: [@cavesofqud](https://x.com/cavesofqud)
@@ -16,12 +16,12 @@
 ## Quickstart
 
 ```bash
-git clone https://github.com/piestyx/QudLogExporter.git
-cd QudLogExporter
+git clone https://github.com/piestyx/game-mods.git
+cd QudStateExtractor
 cp .env.template .env
 # Edit .env to choose your output directory
 bash build.sh
-````
+```
 
 * Then drop the `.cs` files and `mod.json` into your Qud `Mods/` folder.
 
@@ -29,7 +29,9 @@ bash build.sh
 
 ## Overview
 
-**Qud Log Exporter** is a lightweight Harmony-based mod for *Caves of Qud* that logs all in-game player messages and player state to disk in plaintext and JSON formats. Ideal for AI-driven narration, streaming enhancements, or gameplay data analysis.
+Qud State Extractor is an advanced Harmony-based mod for Caves of Qud that logs all in-game player messages, player state, and world state to disc in plaintext and JSON formats.
+
+Ideal for AI-driven gameplay automation, narrative streaming, sandboxing, or gameplay data analysis.
 
 ---
 
@@ -50,14 +52,17 @@ This design avoids hardcoded user paths and hopefully keeps the mod portable acr
 * Logs all player-facing messages to `message_log.txt`
 * Dumps state snapshots:
 
-  * `hp_status.json`: current/max HP and wound levels
-  * `inventory.json`: all items, equipment, carry weight and count with an equipped status
-  * `status_effects.json`: active buffs/debuffs, positive/negative, and timers
-  * `zone.json`: zone name, coordinates, and ID
+  | File               | Contents                                                                             |
+  | ------------------ | ------------------------------------------------------------------------------------ |
+  | `agent_state.json` | Player HP, inventory, effects, position, stats, mutations, abilities, factions, time |
+  | `world_state.json` | Current zone, terrain, visible entities (grouped & detailed), weather                |
+  | `message_log.txt`  | Timestamped narrative log                                                            |
 
-* Fully configurable paths in `.env`
-* Resets log file if it exceeds a given size
-* Toggle debug output with `ENABLE_VERBOSE_LOGS`
+Additional highlights:
+  - Cosmetic entities are grouped by type & count
+  - Fully configurable paths in .env
+  - Resets log file if it exceeds a configured size
+  - Toggle verbose Unity debug logging
 
 ---
 
@@ -69,14 +74,12 @@ Hooks into:
 XRL.Messages.MessageQueue\:AddPlayerMessage(string message, string color, bool capitalize)
 ```
 
-Then writes to:
+And writes to paths defined in your `.env`:
 
-```bash
-${BASE_FILE_PATH}/message_log.txt
-${BASE_FILE_PATH}/hp_status.json
-${BASE_FILE_PATH}/inventory.json
-${BASE_FILE_PATH}/status_effects.json
-${BASE_FILE_PATH}/zone.json
+```dotenv
+BASE_FILE_PATH=${HOME}/.config/unity3d/Freehold Games/CavesOfQud/StateLogs/
+AGENT_FILE_PATH=${BASE_FILE_PATH}agent_state.json
+WORLD_FILE_PATH=${BASE_FILE_PATH}world_state.json
 ```
 
 ---
@@ -96,7 +99,7 @@ ${BASE_FILE_PATH}/zone.json
 1. Place the mod in your Qud Mods folder:
 
    ```bash
-   ~/.config/unity3d/Freehold\ Games/CavesOfQud/Mods/QudLogExporter
+   ~/.config/unity3d/Freehold\ Games/CavesOfQud/Mods/QudStateExtractor
    ```
 
 2. Copy and edit the environment template:
@@ -110,6 +113,8 @@ ${BASE_FILE_PATH}/zone.json
 ```dotenv
 # Required path for output files
 BASE_FILE_PATH=${HOME}/.config/unity3d/Freehold Games/CavesOfQud/StateLogs/
+AGENT_FILE_PATH=${BASE_FILE_PATH}agent_state.json
+WORLD_FILE_PATH=${BASE_FILE_PATH}world_state.json
 
 # Optional maximum file size (in bytes) before logs reset
 LOG_FILE_MAX_SIZE=1048576
@@ -126,13 +131,7 @@ ENABLE_VERBOSE_LOGS=true
 
 You only need to compile if you want a `.dll` instead of using `.cs` source files.
 
-Use the included build script:
-
-```bash
-bash build.sh
-```
-
-Or manually:
+Use the included build script after replacing the path values in the script:
 
 ```bash
 mono-csc -target:library -out:ModAssemblies/QudLogExporter.dll \
@@ -140,7 +139,10 @@ mono-csc -target:library -out:ModAssemblies/QudLogExporter.dll \
   -reference:"/path/to/CavesOfQud/CoQ_Data/Managed/0Harmony.dll" \
   -reference:"/path/to/CavesOfQud/CoQ_Data/Managed/UnityEngine.CoreModule.dll" \
   -reference:"/usr/lib/mono/4.8-api/Facades/netstandard.dll" \
-  src/*.cs
+```
+
+```bash
+bash build.sh
 ```
 
 ---
@@ -163,54 +165,31 @@ mono-csc -target:library -out:ModAssemblies/QudLogExporter.dll \
 [21:54:44] &yYou died.
 ```
 
-### `hp_status.json`
+### `agent_state.json`
 
 ```json
 {
-  "current_hp": 16,
-  "max_hp": 18,
-  "wounded": false
+  "hp": { "current": 16, "max": 18, "penalty": 0 },
+  "inventory": [ ... ],
+  "status_effects": [ ... ],
+  "position": { "x": 37, "y": 22 },
+  "stats": { ... },
+  "mutations": [ ... ],
+  "abilities": [ ... ],
+  "factions": [ ... ],
+  "time_ticks": 367526
 }
 ```
 
-### `inventory.json`
-
-```json
-[
-   {
-     "name":"waterskin {{y|[{{K|empty}}]}}",
-     "count":1,
-     "weight":1,
-     "equipped":false
-   },
-   {
-     "name":"{{w|goat jerky}} {{y|[{{C|9}} servings]}}",
-     "count":9,
-     "weight":0,
-     "equipped":false
-   }
-]
-```
-
-### `status_effects.json`
+### `world_state.json`
 
 ```json
 {
-  "name":"defensive stance",
-  "duration":9999,
-  "description":"{{G|defensive stance}}",
-  "negative":false,
-  "class":"LongbladeStance_Defensive"
-}
-```
-
-### `zone.json`
-
-```json
-{
-  "name":"Sararuk",
-  "zone_id":"JoppaWorld.7.22.1.1.10",
-  "position":{"x":1,"y":1,"z":10}
+  "zone": { "name": "Sararuk", "zone_id": "JoppaWorld.7.22.1.1.10", "position": { "x": 1, "y": 1, "z": 10 } },
+  "terrain": { "name": "salt dunes", "blueprint": "TerrainSaltDunes", "tags": [ ... ], "region": "Saltmarsh" },
+  "entities": [ ... ],
+  "cosmetic_entities": [ { "name": "dirt path", "count": 12 }, ... ],
+  "weather": { "has_weather": true, "current_wind_direction": "N", ... }
 }
 ```
 
@@ -227,10 +206,10 @@ mono-csc -target:library -out:ModAssemblies/QudLogExporter.dll \
 
 ## Roadmap
 
-* [ ] Add support for zone-based log sharding
-* [ ] Improve fault-tolerance and fallback handling
-* [ ] Build a live tailing dashboard for stream overlays
-* [ ] Port to other roguelikes
+* [ ] Pretty-print JSON for debugging readability
+* [ ] Zone-based sharding of log output
+* [ ] Performance optimisations for frequent writes
+* [ ] Windows path support
 
 ---
 
@@ -239,4 +218,4 @@ mono-csc -target:library -out:ModAssemblies/QudLogExporter.dll \
 MIT-style. Fork it, adapt it, use it.
 
 > Created by: **piestyx**
-> First released: **2025-06-24**
+> First released: **2025-07-12**
