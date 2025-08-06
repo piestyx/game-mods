@@ -1,4 +1,4 @@
-![Qud Log Exporter Banner](assets/README-banner.png)
+![Qud Log Exporter Banner](assets/QudLogExporterBanner.png)
 
 [![.NET](https://img.shields.io/badge/.NET-6.0%2C%207.0%2C%208.0%2C%209.0-512BD4)](https://learn.microsoft.com/en-us/dotnet/)
 [![language](https://img.shields.io/badge/language-C%23-239120)](https://learn.microsoft.com/en-us/dotnet/csharp/tour-of-csharp/overview)
