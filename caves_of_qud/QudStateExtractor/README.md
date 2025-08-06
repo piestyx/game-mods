@@ -17,7 +17,7 @@
 
 ```bash
 git clone https://github.com/piestyx/game-mods.git
-cd QudStateExtractor
+cd game-mods/caves-of-qud/QudStateExtractor
 cp .env.template .env
 # Edit .env to choose your output directory
 bash build.sh
@@ -29,9 +29,7 @@ bash build.sh
 
 ## Overview
 
-Qud State Extractor is an advanced Harmony-based mod for Caves of Qud that logs all in-game player messages, player state, and world state to disc in plaintext and JSON formats.
-
-Ideal for AI-driven gameplay automation, narrative streaming, sandboxing, or gameplay data analysis.
+**Qud State Extractor** is a lightweight Harmony-based mod for *Caves of Qud* that logs all in-game player messages and player state to disk in plaintext and JSON formats. Ideal for AI-driven narration, streaming enhancements, or gameplay data analysis. It builds on the previous `QudLogExporter` to target specific action events to trigger a richer log context.
 
 ---
 
@@ -39,7 +37,7 @@ Ideal for AI-driven gameplay automation, narrative streaming, sandboxing, or gam
 
 Caves of Qud compiles the mod to a separate `ModAssemblies/` folder, so any runtime use of `Assembly.GetExecutingAssembly().Location` points to the wrong directory. To fix this:
 
-* `EnvHelper.cs` assumes the `.env` file lives in the mod’s root install directory (e.g. `~/.config/unity3d/.../Mods/QudLogExporter`)
+* `EnvHelper.cs` assumes the `.env` file lives in the mod’s root install directory (e.g. `~/.config/unity3d/.../Mods/QudStateExtractor`)
 * It loads environment variables from `.env` during game launch
 * Paths like `${HOME}` are resolved to the local environment
 
@@ -52,34 +50,50 @@ This design avoids hardcoded user paths and hopefully keeps the mod portable acr
 * Logs all player-facing messages to `message_log.txt`
 * Dumps state snapshots:
 
-  | File               | Contents                                                                             |
-  | ------------------ | ------------------------------------------------------------------------------------ |
-  | `agent_state.json` | Player HP, inventory, effects, position, stats, mutations, abilities, factions, time |
-  | `world_state.json` | Current zone, terrain, visible entities (grouped & detailed), weather                |
-  | `message_log.txt`  | Timestamped narrative log                                                            |
+  * `message_log.txt`: all messages sent to the in game message log
+  * `agent_state.json`: current HP expressed as %, inventory, abilities, mutations
+  * `world_state.json`: zone name, visible entities (hostile/non-hostile), weather
+  * `dialogue.json`: currently active dialogue and node selection options
+  * `quests.json`: all active quests and their status with objective and step
+  * `journal.json`: any journal entries populated during gameplay
 
-Additional highlights:
-  - Cosmetic entities are grouped by type & count
-  - Fully configurable paths in .env
-  - Resets log file if it exceeds a configured size
-  - Toggle verbose Unity debug logging
+* Fully configurable paths in `.env`
+* Resets log file if it exceeds a given size
+* Toggle debug output with `ENABLE_VERBOSE_LOGS`
 
 ---
 
 ## How It Works
 
-Hooks into:
+The output for `message_log.txt` hooks into:
 
 ```csharp
 XRL.Messages.MessageQueue\:AddPlayerMessage(string message, string color, bool capitalize)
 ```
 
-And writes to paths defined in your `.env`:
+`agent_state`, `world_state` and `journal` all trigger an update based on in-game event fires. These are controlled within `QudStateTriggers.cs`:
 
-```dotenv
-BASE_FILE_PATH=${HOME}/.config/unity3d/Freehold Games/CavesOfQud/StateLogs/
-AGENT_FILE_PATH=${BASE_FILE_PATH}agent_state.json
-WORLD_FILE_PATH=${BASE_FILE_PATH}world_state.json
+"ObjectAddedToPlayerInventory"
+"PerformDrop"
+"SyncMutationLevels"
+"BeforeCooldownActivatedAbility"
+"AccomplishmentAdded"
+"GetPointsOfInterest"
+"QuestStarted"
+"LookedAt"
+"AIWakeupBroadcast"
+
+These triggers, although not always directly linked to a specific export state, provide a wide enough coverage to ensure that the AI agent will always receive the latest contextually informed prompt.  
+
+Upon event fire each writes to:
+
+```bash
+${BASE_FILE_PATH}/message_log.txt
+${BASE_FILE_PATH}/agent_state.json
+${BASE_FILE_PATH}/world_state.json
+${BASE_FILE_PATH}/dialogue.json
+${BASE_FILE_PATH}/quests.json
+${BASE_FILE_PATH}/journal.json
 ```
 
 ---
@@ -113,8 +127,6 @@ WORLD_FILE_PATH=${BASE_FILE_PATH}world_state.json
 ```dotenv
 # Required path for output files
 BASE_FILE_PATH=${HOME}/.config/unity3d/Freehold Games/CavesOfQud/StateLogs/
-AGENT_FILE_PATH=${BASE_FILE_PATH}agent_state.json
-WORLD_FILE_PATH=${BASE_FILE_PATH}world_state.json
 
 # Optional maximum file size (in bytes) before logs reset
 LOG_FILE_MAX_SIZE=1048576
@@ -131,18 +143,21 @@ ENABLE_VERBOSE_LOGS=true
 
 You only need to compile if you want a `.dll` instead of using `.cs` source files.
 
-Use the included build script after replacing the path values in the script:
+Use the included build script:
 
 ```bash
-mono-csc -target:library -out:ModAssemblies/QudLogExporter.dll \
+bash build.sh
+```
+
+Or manually:
+
+```bash
+mono-csc -target:library -out:ModAssemblies/QudStateExtractor.dll \
   -reference:"/path/to/CavesOfQud/CoQ_Data/Managed/Assembly-CSharp.dll" \
   -reference:"/path/to/CavesOfQud/CoQ_Data/Managed/0Harmony.dll" \
   -reference:"/path/to/CavesOfQud/CoQ_Data/Managed/UnityEngine.CoreModule.dll" \
   -reference:"/usr/lib/mono/4.8-api/Facades/netstandard.dll" \
-```
-
-```bash
-bash build.sh
+  src/*.cs
 ```
 
 ---
@@ -159,7 +174,7 @@ bash build.sh
 
 ### `message_log.txt`
 
-```
+```text
 [21:54:40] You see a {{B|{{W|wet}} {{B|snapjaw warrior}}}} to the northwest and stop moving.
 [21:54:42] {{&R|You begin bleeding!}}
 [21:54:44] &yYou died.
@@ -169,15 +184,18 @@ bash build.sh
 
 ```json
 {
-  "hp": { "current": 16, "max": 18, "penalty": 0 },
-  "inventory": [ ... ],
-  "status_effects": [ ... ],
-  "position": { "x": 37, "y": 22 },
-  "stats": { ... },
-  "mutations": [ ... ],
-  "abilities": [ ... ],
-  "factions": [ ... ],
-  "time_ticks": 367526
+  "hp":
+  {
+    "current":31,
+    "max":31,
+    "penalty":0
+  },
+  "inventory":[
+    {
+      "name":"waterskin {{y|[{{K|empty}}]}}",
+      ...
+    }
+  ]
 }
 ```
 
@@ -185,11 +203,83 @@ bash build.sh
 
 ```json
 {
-  "zone": { "name": "Sararuk", "zone_id": "JoppaWorld.7.22.1.1.10", "position": { "x": 1, "y": 1, "z": 10 } },
-  "terrain": { "name": "salt dunes", "blueprint": "TerrainSaltDunes", "tags": [ ... ], "region": "Saltmarsh" },
-  "entities": [ ... ],
-  "cosmetic_entities": [ { "name": "dirt path", "count": 12 }, ... ],
-  "weather": { "has_weather": true, "current_wind_direction": "N", ... }
+  "zone":
+  {
+    "name":"rusty salt marsh, kitchen of Shwyshrashur, legendary chef, surface",
+    "zone_id":"JoppaWorld.11.21.0.0.10",
+    "position":{"x":0,"y":0,"z":10}
+  },
+  "entities":[
+    {
+      "name":"{{B|{{B|wet}} glowfish}} {{y|[{{B|swimming}}]}}",
+      "hp":5,
+      "max_hp":5,
+      "hostile":false,
+      ...
+    }
+  ]
+}
+```
+
+### `dialogue.json`
+
+```json
+{
+  "speaker":"Mehmet",
+  "listener":"{{B|{{B|wet}} Orielle}}",
+  "current_node":"Aye",
+  "text":"{{y|Aye.}}",
+  "last_choice":"AyeChoice",
+  "choices":[
+    {
+      "id":"VillageChoice",
+      "text":"{{g|Can you tell me about your village, Joppa?}}",
+      "selected":true
+    },
+    {
+      "id":"EndChoice",
+      "text":"{{G|Live and drink.}} {{K|[End]}}",
+      "selected":false
+    }
+  ]
+}
+```
+
+### `quests.json`
+
+```json
+{
+  "active":[
+    {
+      "id":"What's Eating the Watervine?",
+      "name":"{{W|What's Eating the Watervine?}}",
+      "steps":[
+        {"name":"Travel to Red Rock",
+        "text":"Journey two parasangs north of Joppa to Red Rock.",
+        "optional":false,
+        "finished":false,
+        "failed":false
+        },
+        {
+          "name":"Find the Vermin",
+          "text":"Find the creatures that are eating Joppa's watervine.",
+          ...
+        }
+      ]
+    }
+  ]
+}
+```
+
+### `journal.json`
+
+```json
+{
+  "sultan_notes":[
+    {
+      "text":"On an expedition around the Electricians' Monarchy of Duggatara, Artayudukht was captured by bandits. She languished in captivity for eight years, eventually escaping to Aazobal Steeple."
+    }
+  ]
 }
 ```
 
@@ -197,19 +287,10 @@ bash build.sh
 
 ## Limitations
 
-* Only logs messages sent via `AddPlayerMessage`
+* Event triggers aren't always directly related to the export. For instance, journal entries are added through an API that has a trigger event per frame. This then has an impact on game performance with every frame json logging
 * `.env` must exist and be correctly formatted
 * The mod doesn't auto-create folders so all output directories must exist
 * Currently Linux-only (Windows support untested)
-
----
-
-## Roadmap
-
-* [ ] Pretty-print JSON for debugging readability
-* [ ] Zone-based sharding of log output
-* [ ] Performance optimisations for frequent writes
-* [ ] Windows path support
 
 ---
 
@@ -218,4 +299,4 @@ bash build.sh
 MIT-style. Fork it, adapt it, use it.
 
 > Created by: **piestyx**
-> First released: **2025-07-12**
+> First released: **2025-06-24**

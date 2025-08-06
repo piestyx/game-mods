@@ -34,6 +34,12 @@ public static class EnvHelper
                 var value = parts[1].Trim();
 
                 value = value.Replace("${HOME}", HomeDir).Replace("~", HomeDir);
+
+                // Resolve other ${VAR} in value
+                foreach (var kv in env)
+                {
+                    value = value.Replace($"${{{kv.Key}}}", kv.Value);
+                }
                 env[key] = value;
             }
         }
