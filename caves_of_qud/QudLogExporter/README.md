@@ -21,7 +21,7 @@ cd QudLogExporter
 cp .env.template .env
 # Edit .env to choose your output directory
 bash build.sh
-````
+```
 
 * Then drop the `.cs` files and `mod.json` into your Qud `Mods/` folder.
 
