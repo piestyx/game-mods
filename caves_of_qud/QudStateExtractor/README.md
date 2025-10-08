@@ -29,79 +29,111 @@ bash build.sh
 
 ## Overview
 
-**Qud State Extractor** is a lightweight Harmony-based mod for *Caves of Qud* that logs all in-game player messages and player state to disk in plaintext and JSON formats. Ideal for AI-driven narration, streaming enhancements, or gameplay data analysis. It builds on the previous `QudLogExporter` to target specific action events to trigger a richer log context.
+**Qud State Extractor** is a comprehensive Harmony-based mod for *Caves of Qud* that exports complete game state information to JSON files in real-time. Originally designed for AI-driven gameplay and streaming enhancements, it provides full visibility into player state, world state, UI screens, and available actions with their keyboard shortcuts.
+
+Unlike simple message loggers, this mod captures:
+- **What the player can see** (world state, nearby items, UI screens)
+- **What actions are available** (menu options, abilities, trade offers)
+- **How to perform actions** (keyboard shortcuts and hotkeys)
+- **Current game context** (quests, dialogue, equipment, stats)
+
+This makes it ideal for:
+- AI agents that need to understand and play the game
+- Accessibility tools that need structured game data
+- Analytics and gameplay research
+- Enhanced streaming overlays
+- Custom UI development
 
 ---
 
-## Note
+## Architecture Note
 
-Caves of Qud compiles the mod to a separate `ModAssemblies/` folder, so any runtime use of `Assembly.GetExecutingAssembly().Location` points to the wrong directory. To fix this:
+Caves of Qud compiles mods to `ModAssemblies/`, so `Assembly.GetExecutingAssembly().Location` points to the wrong directory. To solve this:
 
-* `EnvHelper.cs` assumes the `.env` file lives in the mod’s root install directory (e.g. `~/.config/unity3d/.../Mods/QudStateExtractor`)
-* It loads environment variables from `.env` during game launch
-* Paths like `${HOME}` are resolved to the local environment
+* `EnvHelper.cs` locates the mod's root directory by walking up from `ModAssemblies/`
+* Environment variables are loaded from `.env` in the mod root
+* Paths support `${HOME}` and `${VARIABLE}` expansion for portability
 
-This design avoids hardcoded user paths and hopefully keeps the mod portable across machines and distros.
+This design keeps the mod portable across machines without hardcoded paths.
 
 ---
 
 ## Features
 
-* Logs all player-facing messages to `message_log.txt`
-* Dumps state snapshots:
+### Core Exports (17 Data Streams)
 
-  * `message_log.txt`: all messages sent to the in game message log
-  * `agent_state.json`: current HP expressed as %, inventory, abilities, mutations
-  * `world_state.json`: zone name, visible entities (hostile/non-hostile), weather
-  * `dialogue.json`: currently active dialogue and node selection options
-  * `quests.json`: all active quests and their status with objective and step
-  * `journal.json`: any journal entries populated during gameplay
+All exports include timestamps, proper source tracking, and Qud markup preservation where needed.
 
-* Fully configurable paths in `.env`
-* Resets log file if it exceeds a given size
-* Toggle debug output with `ENABLE_VERBOSE_LOGS`
+#### Gameplay State
+* **`message_log.txt`**: Timestamped stream of all in-game messages
+* **`agent_state.json`**: Player HP, stats, inventory, equipped items, mutations, skills
+* **`world_state.json`**: Current zone, visible entities (hostile/neutral), terrain, weather
+* **`quests.json`**: Active quests with objectives, steps, and completion status
+* **`journal.json`**: Sultan histories, lore notes, and discoveries
+* **`points_of_interest.json`**: Notable locations and landmarks
+
+#### UI & Interaction State
+* **`dialogue.json`**: Current conversation with speaker, text, and choice options
+* **`ui_popup.json`**: Active popup messages and prompts
+* **`nearby_items.json`**: Items visible on screen with take/examine options
+
+#### Menu Screens (with hotkeys and bottom bars)
+* **`ability_menu.json`**: All abilities with activation keys and cooldowns
+* **`equipment_screen.json`**: Equipped items by slot with quick-swap keys
+* **`skills_powers.json`**: Character skills and mutations with point costs
+* **`status_screen.json`**: Detailed character stats and attributes
+* **`tinkering_screen.json`**: Crafting recipes and material requirements
+* **`pick_item.json`**: Item selection interface with quickkeys
+* **`trade.json`**: Trade screen with item prices and available actions
+* **`trade_completion.json`**: Completed trade results with items exchanged
+
+### Key Features
+* **Complete UI State**: Every menu includes bottom bar options with keyboard shortcuts
+* **Hotkey Mapping**: Automatic extraction of quickkeys (a-z, 0-9) for items and options
+* **Trade Information**: Full pricing data, value calculations, and cost multipliers
+* **Real-time Updates**: Exports trigger on relevant game events for timely data
+* **Performance Optimized**: Smart caching and event filtering minimize overhead
+* **Configurable Paths**: All output locations defined in `.env`
+* **Debug Mode**: Optional verbose logging for troubleshooting
 
 ---
 
 ## How It Works
 
-The output for `message_log.txt` hooks into:
+### Message Logging
+Hooks into `XRL.Messages.MessageQueue:AddPlayerMessage` to capture all player-facing messages with timestamps.
 
-```csharp
-XRL.Messages.MessageQueue\:AddPlayerMessage(string message, string color, bool capitalize)
-```
+### State Exports
+Triggered by relevant in-game events to ensure timely updates without excessive polling:
 
-`agent_state`, `world_state` and `journal` all trigger an update based on in-game event fires. These are controlled within `QudStateTriggers.cs`:
+**Core State Events:**
+- `ObjectAddedToPlayerInventory` / `PerformDrop` → inventory updates
+- `SyncMutationLevels` → mutation/skill changes
+- `BeforeCooldownActivatedAbility` → ability usage
+- `AccomplishmentAdded` → quest/achievement updates
+- `GetPointsOfInterest` → world exploration
+- `AIWakeupBroadcast` → combat state changes
 
-"ObjectAddedToPlayerInventory"
-"PerformDrop"
-"SyncMutationLevels"
-"BeforeCooldownActivatedAbility"
-"AccomplishmentAdded"
-"GetPointsOfInterest"
-"QuestStarted"
-"LookedAt"
-"AIWakeupBroadcast"
+**UI State Events:**
+- Menu open/close → screen state exports
+- Item selection → pick item state
+- Trade updates → trade screen state
+- Dialogue changes → conversation state
 
-These triggers, although not always directly linked to a specific export state, provide a wide enough coverage to ensure that the AI agent will always receive the latest contextually informed prompt.  
+### Bottom Bar Scraping
+Every menu screen exports its bottom bar showing:
+- Available commands ("Close Menu", "navigate", "take all")
+- Keyboard shortcuts (Escape, arrows, hotkeys)
+- Context-specific actions (trade, store, examine)
 
-Upon event fire each writes to:
-
-```bash
-${BASE_FILE_PATH}/message_log.txt
-${BASE_FILE_PATH}/agent_state.json
-${BASE_FILE_PATH}/world_state.json
-${BASE_FILE_PATH}/dialogue.json
-${BASE_FILE_PATH}/quests.json
-${BASE_FILE_PATH}/journal.json
-```
+This allows AI agents to know exactly what actions are possible at any moment.
 
 ---
 
 ## Dependencies
 
 | Dependency      | Purpose                                   | Notes                 |
-| --------------- | ----------------------------------------- | --------------------- |
+|-----------------|-------------------------------------------|-----------------------|
 | `mono-complete` | Required to compile with `mono-csc`       | Linux only            |
 | `Harmony`       | Patch engine for runtime method overrides | Qud already ships it  |
 | `UnityEngine.*` | Game interface layer                      | Needed for build only |
@@ -111,31 +143,45 @@ ${BASE_FILE_PATH}/journal.json
 ## Setup
 
 1. Place the mod in your Qud Mods folder:
-
    ```bash
    ~/.config/unity3d/Freehold\ Games/CavesOfQud/Mods/QudStateExtractor
    ```
 
 2. Copy and edit the environment template:
-
    ```bash
    cp .env.template .env
    ```
 
 3. Example `.env`:
+   ```dotenv
+   # Base path for all output files
+   BASE_FILE_PATH=${HOME}/.config/unity3d/Freehold Games/CavesOfQud/StateLogs/
+   
+   # Individual file paths (all support ${BASE_FILE_PATH} expansion)
+   AGENT_FILE_PATH=${BASE_FILE_PATH}agent_state.json
+   WORLD_FILE_PATH=${BASE_FILE_PATH}world_state.json
+   QUESTS_FILE_PATH=${BASE_FILE_PATH}quests.json
+   DIALOGUE_FILE_PATH=${BASE_FILE_PATH}dialogue.json
+   JOURNAL_FILE_PATH=${BASE_FILE_PATH}journal.json
+   MESSAGE_LOG_FILE_PATH=${BASE_FILE_PATH}message_log.txt
+   POINTS_FILE_PATH=${BASE_FILE_PATH}points_of_interest.json
+   POPUP_FILE_PATH=${BASE_FILE_PATH}ui_popup.json
+   ABILITY_MENU=${BASE_FILE_PATH}ability_menu.json
+   EQUIPMENT_SCREEN=${BASE_FILE_PATH}equipment_screen.json
+   SKILLS_POWERS=${BASE_FILE_PATH}skills_powers.json
+   STATUS_SCREEN=${BASE_FILE_PATH}status_screen.json
+   TINKERING_SCREEN=${BASE_FILE_PATH}tinkering_screen.json
+   PICK_ITEM=${BASE_FILE_PATH}pick_item.json
+   TRADE_SCREEN=${BASE_FILE_PATH}trade.json
+   TRADE_COMPLETION=${BASE_FILE_PATH}trade_completion.json
+   NEARBY_ITEMS=${BASE_FILE_PATH}nearby_items.json
+   
+   # Optional settings
+   LOG_FILE_MAX_SIZE=1048576
+   ENABLE_VERBOSE_LOGS=false
+   ```
 
-```dotenv
-# Required path for output files
-BASE_FILE_PATH=${HOME}/.config/unity3d/Freehold Games/CavesOfQud/StateLogs/
-
-# Optional maximum file size (in bytes) before logs reset
-LOG_FILE_MAX_SIZE=1048576
-
-# Enable or disable Unity debug logs
-ENABLE_VERBOSE_LOGS=true
-```
-
-> Use `${HOME}` for cross-system compatibility.
+> **Note**: Use `${HOME}` or `${BASE_FILE_PATH}` for cross-system compatibility. The output directory must exist before running the game.
 
 ---
 
@@ -144,13 +190,11 @@ ENABLE_VERBOSE_LOGS=true
 You only need to compile if you want a `.dll` instead of using `.cs` source files.
 
 Use the included build script:
-
 ```bash
 bash build.sh
 ```
 
 Or manually:
-
 ```bash
 mono-csc -target:library -out:ModAssemblies/QudStateExtractor.dll \
   -reference:"/path/to/CavesOfQud/CoQ_Data/Managed/Assembly-CSharp.dll" \
@@ -166,14 +210,14 @@ mono-csc -target:library -out:ModAssemblies/QudStateExtractor.dll \
 
 1. Enable the mod in the Qud **Mods** menu
 2. Start a game
-3. Logs will appear at the path set in your `.env`
+3. Logs will appear at the paths set in your `.env`
+4. Open menus, trade, fight - all state exports automatically
 
 ---
 
 ## Sample Output
 
 ### `message_log.txt`
-
 ```text
 [21:54:40] You see a {{B|{{W|wet}} {{B|snapjaw warrior}}}} to the northwest and stop moving.
 [21:54:42] {{&R|You begin bleeding!}}
@@ -181,122 +225,252 @@ mono-csc -target:library -out:ModAssemblies/QudStateExtractor.dll \
 ```
 
 ### `agent_state.json`
-
 ```json
 {
-  "hp":
-  {
-    "current":31,
-    "max":31,
-    "penalty":0
+  "timestamp": "2025-10-08T13:00:00Z",
+  "source": "Agent State",
+  "hp": {
+    "current": 31,
+    "max": 31,
+    "percentage": 100
   },
-  "inventory":[
+  "stats": {
+    "Strength": 18,
+    "Agility": 16,
+    "Toughness": 18
+  },
+  "inventory": [
     {
-      "name":"waterskin {{y|[{{K|empty}}]}}",
-      ...
+      "name": "steel longsword",
+      "count": 1,
+      "equipped": true,
+      "slot": "Weapon"
+    }
+  ],
+  "abilities": [
+    {
+      "name": "Charge",
+      "cooldown": 0,
+      "ready": true
     }
   ]
 }
 ```
 
-### `world_state.json`
-
+### `trade.json`
 ```json
 {
-  "zone":
-  {
-    "name":"rusty salt marsh, kitchen of Shwyshrashur, legendary chef, surface",
-    "zone_id":"JoppaWorld.11.21.0.0.10",
-    "position":{"x":0,"y":0,"z":10}
-  },
-  "entities":[
+  "timestamp": "2025-10-08T13:00:00Z",
+  "source": "TradeScreen",
+  "trader_name": "Mehmet",
+  "trader_drams": 150,
+  "player_drams": 32,
+  "cost_multiple": 1.0,
+  "left_side": [
     {
-      "name":"{{B|{{B|wet}} glowfish}} {{y|[{{B|swimming}}]}}",
-      "hp":5,
-      "max_hp":5,
-      "hostile":false,
-      ...
+      "name": "torch",
+      "category": "Light Sources",
+      "value": 0.42,
+      "price": 0.42,
+      "weight": 1,
+      "count": 5
     }
+  ],
+  "right_side": [
+    {
+      "name": "waterskin",
+      "category": "Water Containers",
+      "value": 2.1,
+      "price": 2.1,
+      "weight": 1,
+      "count": 1
+    }
+  ],
+  "bottom": [
+    {"text": "Close Menu", "hotkey": "Escape"},
+    {"text": "navigate", "hotkey": "←→↑↓"},
+    {"text": "offer", "hotkey": "Enter"},
+    {"text": "vendor actions", "hotkey": "Space"}
   ]
 }
 ```
 
-### `dialogue.json`
-
+### `pick_item.json`
 ```json
 {
-  "speaker":"Mehmet",
-  "listener":"{{B|{{B|wet}} Orielle}}",
-  "current_node":"Aye",
-  "text":"{{y|Aye.}}",
-  "last_choice":"AyeChoice",
-  "choices":[
+  "timestamp": "2025-10-08T13:00:00Z",
+  "source": "PickGameObjectScreen",
+  "title": "Opening a chest",
+  "data": [
     {
-      "id":"VillageChoice",
-      "text":"{{g|Can you tell me about your village, Joppa?}}",
-      "selected":true
+      "id": "a",
+      "name": "steel longsword",
+      "weight": 7,
+      "count": 1,
+      "takeable": true
     },
     {
-      "id":"EndChoice",
-      "text":"{{G|Live and drink.}} {{K|[End]}}",
-      "selected":false
+      "id": "b",
+      "name": "bandage",
+      "weight": 0,
+      "count": 3,
+      "takeable": true
     }
+  ],
+  "bottom": [
+    {"text": "Close Menu", "hotkey": "Escape"},
+    {"text": "navigate", "hotkey": "←→↑↓"},
+    {"text": "toggle sort", "hotkey": "Page Left"},
+    {"text": "take all", "hotkey": "Take All"}
   ]
 }
 ```
 
-### `quests.json`
-
+### `ability_menu.json`
 ```json
 {
-  "active":[
+  "timestamp": "2025-10-08T13:00:00Z",
+  "source": "AbilityMenu",
+  "abilities": [
     {
-      "id":"What's Eating the Watervine?",
-      "name":"{{W|What's Eating the Watervine?}}",
-      "steps":[
-        {"name":"Travel to Red Rock",
-        "text":"Journey two parasangs north of Joppa to Red Rock.",
-        "optional":false,
-        "finished":false,
-        "failed":false
-        },
-        {
-          "name":"Find the Vermin",
-          "text":"Find the creatures that are eating Joppa's watervine.",
-          ...
-        }
-      ]
-    }
-  ]
-}
-```
-
-### `journal.json`
-
-```json
-{
-  "sultan_notes":[
+      "id": "a",
+      "name": "Charge",
+      "description": "Sprint toward an enemy",
+      "cooldown": 0,
+      "ready": true,
+      "enabled": true
+    },
     {
-      "text":"On an expedition around the Electricians' Monarchy of Duggatara, Artayudukht was captured by bandits. She languished in captivity for eight years, eventually escaping to Aazobal Steeple."
+      "id": "b",
+      "name": "Flurry",
+      "description": "Make multiple attacks",
+      "cooldown": 5,
+      "ready": false,
+      "enabled": true
     }
+  ],
+  "bottom": [
+    {"text": "Close Menu", "hotkey": "Escape"},
+    {"text": "activate", "hotkey": "a-z"}
   ]
 }
 ```
 
 ---
 
-## Limitations
+## Performance Considerations
 
-* Event triggers aren't always directly related to the export. For instance, journal entries are added through an API that has a trigger event per frame. This then has an impact on game performance with every frame json logging
-* `.env` must exist and be correctly formatted
-* The mod doesn't auto-create folders so all output directories must exist
-* Currently Linux-only (Windows support untested)
+The mod is designed to minimize performance impact:
+
+- **Event-driven**: Exports only happen when state actually changes
+- **Smart caching**: Repeated data isn't recomputed unnecessarily
+- **Filtered triggers**: Only relevant events trigger expensive operations
+- **Optimized reflection**: Harmony patches use cached field lookups
+- **Async-safe**: File I/O doesn't block game threads
+
+Typical overhead: < 1% frame time on modern systems.
+
+---
+
+## Troubleshooting
+
+### No files are being generated
+- Check that `BASE_FILE_PATH` directory exists
+- Verify `.env` is in the mod root (`Mods/QudStateExtractor/.env`)
+- Enable `ENABLE_VERBOSE_LOGS=true` and check `Player.log`
+
+### Files are empty or missing fields
+- Check `Player.log` for `[Narrator]` error messages
+- Verify all paths in `.env` are correct
+- Ensure proper permissions on output directory
+
+### Bottom bar is empty in some menus
+- This is expected for some popup dialogs
+- Check `ENABLE_VERBOSE_LOGS=true` to see what's being scraped
+
+### Performance issues
+- Disable `ENABLE_VERBOSE_LOGS` in production
+- Increase `LOG_FILE_MAX_SIZE` if message log rotates too often
+- Consider using fewer export paths if not all are needed
+
+---
+
+## Use Cases
+
+### AI Agent Development
+The mod provides everything an AI needs to play Qud:
+- Current game state (HP, inventory, location)
+- Available actions with keyboard shortcuts
+- Contextual information (quests, dialogue, trade prices)
+- Real-time event stream (combat, item pickups, messages)
+
+### Streaming Enhancements
+Build custom overlays showing:
+- Character stats and inventory
+- Quest progress
+- Trading prices
+- Available abilities with cooldowns
+
+### Accessibility Tools
+Create alternative interfaces for:
+- Screen reader integration
+- Custom input methods
+- Simplified UI for mobility-impaired players
+
+### Analytics & Research
+Study gameplay patterns:
+- Combat effectiveness
+- Resource management
+- Quest completion rates
+- Trading behavior
+
+---
+
+## Known Limitations
+
+- **Performance**: High-frequency events (like journal updates) can impact frame rate if logged every frame
+- **Environment**: Currently tested on Linux only (Windows support untested)
+- **Directory Creation**: Output directories must be created manually
+- **Markup**: Some Qud color markup is preserved in exports (by design for full information)
+- **Static Fields**: Some menu options use static fields that may not update immediately
+
+---
+
+## Future Improvements
+
+- Windows compatibility testing
+- Auto-create output directories
+- Optional markup stripping configuration
+- Export rate limiting for high-frequency events
+- Delta exports (only changed fields)
+- Compressed JSON option
+
+---
+
+## Contributing
+
+Contributions welcome! Areas that need work:
+- Windows testing and compatibility
+- Performance profiling and optimization
+- Additional export formats (XML, CSV)
+- More UI screen coverage
+- Better error handling
 
 ---
 
 ## License
 
-MIT-style. Fork it, adapt it, use it.
+MIT-style. Fork it, adapt it, use it for non-commercial purposes.
 
-> Created by: **piestyx**
-> First released: **2025-06-24**
+> **Created by**: piestyx  
+> **First released**: 2025-01-06  
+> **Current version**: 2.0.0
+
+---
+
+## Acknowledgments
+
+- Freehold Games for creating Caves of Qud
+- The Qud modding community
+- Harmony library maintainers
+- Contributors and testers

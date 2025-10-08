@@ -1,39 +1,32 @@
-using HarmonyLib;
+// Mods/QudStateExtractor/exporters/GameStateExporters.cs
+
+/// <summary> 
+/// Exports the current Game State data to JSON and defines what is included
+/// in the export. This includes agent state, world state, quests, journal,
+/// </summary>
+
 using System;
-using System.IO;
-using System.Linq;
-using System.Reflection;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
+using Qud.API;
 using XRL;
-using XRL.UI;
 using XRL.Core;
 using XRL.World;
 using XRL.World.Parts;
-using XRL.World.Conversations;
 using XRL.World.Parts.Mutation;
-using Qud.API;
-using MiniJSON;
+using XRL.World.Conversations;
+using XRL.UI;
+using QudStateExtractor.Core;
+using QudStateExtractor.Scrapers;
+using GO = XRL.World.GameObject;
 
-namespace QudStateExtractor
+namespace QudStateExtractor.Exporters
 {
-    public static class QudStateExtractor
+    public static class GameStateExporters
     {
-        static void WriteJsonRecord(string path, object record, string label)
-        {
-            var json = Json.Serialize(record);
-            
-            using (StreamWriter writer = new StreamWriter(path, append: true))
-                writer.WriteLine(json);
-
-            if (EnvHelper.IsVerbose())
-                Debug.Log($"[Narrator] {label} appended to {path}");
-        }
-
         public static void ExportAgentState()
         {
-            string path = EnvHelper.GetEnvPath("AGENT_FILE_PATH");
-
             try
             {
                 var player = XRLCore.Core?.Game?.Player?.Body;
@@ -48,22 +41,26 @@ namespace QudStateExtractor
                 };
 
                 var inventory = new List<object>();
-                foreach (XRL.World.GameObject item in player.Inventory?.GetObjects() ?? new List<XRL.World.GameObject>())
+                var inventoryItems = player.GetInventoryAndEquipment();
+                if (inventoryItems != null)
                 {
-                    inventory.Add(new Dictionary<string, object>
-                {
-                        { "name", item.DisplayName },
-                        { "count", item.Count },
-                        { "weight", item.GetStat("Weight")?.Value ?? item.Weight },
-                        { "equipped", item.EquippedOn() != null }
-                    });
+                    foreach (var item in inventoryItems)
+                    {
+                        inventory.Add(new Dictionary<string, object>
+                        {
+                            { "name", item.DisplayName },
+                            { "weight", item.GetStat("Weight")?.Value ?? item.Weight },
+                            { "equipped", item.EquippedOn() != null },
+                            { "equippedSlot", item.EquippedOn()?.Type ?? null }
+                        });
+                    }
                 }
 
                 var effects = new List<object>();
                 foreach (var fx in player.Effects)
                 {
                     effects.Add(new Dictionary<string, object>
-                {
+                    {
                         { "name", fx.DisplayNameStripped },
                         { "duration", fx.Duration },
                         { "description", fx.GetDescription() },
@@ -87,7 +84,7 @@ namespace QudStateExtractor
                 foreach (var m in mutationsPart?.ActiveMutationList ?? new List<BaseMutation>())
                 {
                     mutations.Add(new Dictionary<string, object>
-                            {
+                    {
                         { "name", m.GetDisplayName() },
                         { "level", m.Level }
                     });
@@ -98,7 +95,7 @@ namespace QudStateExtractor
                 foreach (var kvp in abilitiesPart?.AbilityByGuid ?? new Dictionary<Guid, ActivatedAbilityEntry>())
                 {
                     abilities.Add(new Dictionary<string, object>
-                            {
+                    {
                         { "name", kvp.Value.DisplayName },
                         { "cooldown", kvp.Value.Cooldown }
                     });
@@ -109,14 +106,12 @@ namespace QudStateExtractor
                 {
                     if (!faction.Visible || faction.Name.Contains("villagers")) continue;
                     factions.Add(new Dictionary<string, object>
-                            {
+                    {
                         { "id", faction.Name },
                         { "name", faction.DisplayName },
                         { "rep", Faction.PlayerReputation.Get(faction.Name) }
                     });
                 }
-
-                var time = XRLCore.Core?.Game?.TimeTicks ?? 0;
 
                 var agent = new Dictionary<string, object>
                 {
@@ -128,7 +123,7 @@ namespace QudStateExtractor
                     { "mutations", mutations },
                     { "abilities", abilities },
                     { "factions", factions },
-                    { "time_ticks", time }
+                    { "time_ticks", XRLCore.Core?.Game?.TimeTicks ?? 0 }
                 };
 
                 var record = new Dictionary<string, object>
@@ -137,40 +132,29 @@ namespace QudStateExtractor
                     { "data", agent }
                 };
 
-                WriteJsonRecord(path, record, "Agent State");
-
+                ExportWriter.WriteJson("AGENT_FILE_PATH", record, "Agent State");
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError($"[Narrator] Logging failed: {ex.Message}");
+                Debug.LogError($"[Narrator] ExportAgentState failed: {ex.Message}");
             }
         }
 
         public static void ExportWorldState()
         {
-            string path = EnvHelper.GetEnvPath("WORLD_FILE_PATH");
-
             try
             {
                 var player = XRLCore.Core?.Game?.Player?.Body;
                 var zone = player?.CurrentZone;
                 if (zone == null || player == null) return;
 
-                // Zone
                 var zoneInfo = new Dictionary<string, object>
                 {
                     { "name", zone.DisplayName },
                     { "zone_id", zone.ZoneID },
-                    { "position", new Dictionary<string, object>
-                    {
-                        { "x", zone.X },
-                        { "y", zone.Y },
-                        { "z", zone.Z }
-                    }
-                    }
+                    { "position", new Dictionary<string, object> { { "x", zone.X }, { "y", zone.Y }, { "z", zone.Z } } }
                 };
 
-                // Terrain
                 var terrainObj = zone.GetTerrainObject();
                 var terrainTags = new List<string>();
                 if (terrainObj != null && terrainObj.Blueprint != null)
@@ -188,11 +172,10 @@ namespace QudStateExtractor
                     { "region", zone.GetTerrainRegion() ?? "" }
                 };
 
-                // Entities
                 var entitiesDetailed = new List<object>();
                 var cosmeticCounts = new Dictionary<string, int>();
 
-                foreach (XRL.World.GameObject obj in zone.GetObjects(o => o != player))
+                foreach (var obj in zone.GetObjects(o => o != player))
                 {
                     if (obj.CurrentCell == null || !obj.CurrentCell.IsVisible()) continue;
 
@@ -202,9 +185,9 @@ namespace QudStateExtractor
                     var tags = new List<string>();
                     if (!string.IsNullOrEmpty(obj.Blueprint))
                     {
-                        var blueprint = GameObjectFactory.Factory.Blueprints[obj.Blueprint];
-                        if (blueprint?.Tags != null)
-                            tags = new List<string>(blueprint.Tags.Keys);
+                        var bp = GameObjectFactory.Factory.Blueprints[obj.Blueprint];
+                        if (bp?.Tags != null)
+                            tags = new List<string>(bp.Tags.Keys);
                     }
 
                     if (hostile || obj.Brain != null || obj.IsCombatObject())
@@ -224,9 +207,7 @@ namespace QudStateExtractor
                     else
                     {
                         string name = obj.DisplayName;
-                        if (!cosmeticCounts.ContainsKey(name))
-                            cosmeticCounts[name] = 0;
-                        cosmeticCounts[name]++;
+                        cosmeticCounts[name] = cosmeticCounts.TryGetValue(name, out var c) ? c + 1 : 1;
                     }
                 }
 
@@ -247,15 +228,15 @@ namespace QudStateExtractor
                     { "entities", entitiesDetailed },
                     { "cosmetic_entities", groupedCosmetics },
                     { "weather", new Dictionary<string, object>
-                    {
-                        { "has_weather", zone.HasWeather },
-                        { "wind_speed", zone.WindSpeed },
-                        { "wind_directions", zone.WindDirections },
-                        { "wind_duration", zone.WindDuration },
-                        { "current_wind_speed", zone.CurrentWindSpeed },
-                        { "current_wind_direction", zone.CurrentWindDirection },
-                        { "next_wind_change", zone.NextWindChange }
-                    }
+                        {
+                            { "has_weather", zone.HasWeather },
+                            { "wind_speed", zone.WindSpeed },
+                            { "wind_directions", zone.WindDirections },
+                            { "wind_duration", zone.WindDuration },
+                            { "current_wind_speed", zone.CurrentWindSpeed },
+                            { "current_wind_direction", zone.CurrentWindDirection },
+                            { "next_wind_change", zone.NextWindChange }
+                        }
                     }
                 };
 
@@ -265,27 +246,20 @@ namespace QudStateExtractor
                     { "data", world }
                 };
 
-                WriteJsonRecord(path, record, "World State");
-
+                ExportWriter.WriteJson("WORLD_FILE_PATH", record, "World State");
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError($"[Narrator] Logging failed: {ex.Message}");
+                Debug.LogError($"[Narrator] ExportWorldState failed: {ex.Message}");
             }
         }
 
         public static void ExportQuests()
         {
-            string path = EnvHelper.GetEnvPath("QUESTS_FILE_PATH");
-
             try
             {
                 var game = XRLCore.Core?.Game;
-                if (game == null)
-                {
-                    UnityEngine.Debug.LogWarning("[Narrator] Game not found.");
-                    return;
-                }
+                if (game == null) return;
 
                 var active = new List<object>();
                 var finished = new List<object>();
@@ -296,54 +270,50 @@ namespace QudStateExtractor
                     foreach (var step in quest.StepsByID.Values.OrderBy(s => s.Ordinal))
                     {
                         if (step.Hidden) continue;
-
                         steps.Add(new Dictionary<string, object>
-                            {
-                                { "name", step.Name },
-                                { "text", step.Text },
-                                { "optional", step.Optional },
-                                { "finished", step.Finished },
-                                { "failed", step.Failed }
-                            });
+                        {
+                            { "name", step.Name },
+                            { "text", step.Text },
+                            { "optional", step.Optional },
+                            { "finished", step.Finished },
+                            { "failed", step.Failed }
+                        });
                     }
 
                     active.Add(new Dictionary<string, object>
-                        {
-                            { "id", quest.ID },
-                            { "name", quest.DisplayName },
-                            { "steps", steps }
-                        });
+                    {
+                        { "id", quest.ID },
+                        { "name", quest.DisplayName },
+                        { "steps", steps }
+                    });
                 }
 
                 foreach (var quest in game.FinishedQuests.Values)
                 {
                     finished.Add(new Dictionary<string, object>
-                        {
-                            { "id", quest.ID },
-                            { "name", quest.DisplayName }
-                        });
+                    {
+                        { "id", quest.ID },
+                        { "name", quest.DisplayName }
+                    });
                 }
 
                 var record = new Dictionary<string, object>
-                    {
-                        { "timestamp", DateTime.UtcNow.ToString("o") },
-                        { "active", active },
-                        { "finished", finished }
-                    };
+                {
+                    { "timestamp", DateTime.UtcNow.ToString("o") },
+                    { "active", active },
+                    { "finished", finished }
+                };
 
-                WriteJsonRecord(path, record, "Quests");
-
+                ExportWriter.WriteJson("QUESTS_FILE_PATH", record, "Quests");
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError($"[Narrator] Logging failed: {ex.Message}");
+                Debug.LogError($"[Narrator] ExportQuests failed: {ex.Message}");
             }
         }
 
         public static void ExportJournal()
         {
-            string path = EnvHelper.GetEnvPath("JOURNAL_FILE_PATH");
-
             try
             {
                 var record = new Dictionary<string, object>
@@ -360,47 +330,37 @@ namespace QudStateExtractor
 
                     ["observations"] = JournalAPI.Observations
                         .Where(o => o.Revealed)
-                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text })
-                        .ToList(),
+                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text }).ToList(),
 
                     ["general_notes"] = JournalAPI.GeneralNotes
                         .Where(n => n.Revealed)
-                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text })
-                        .ToList(),
+                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text }).ToList(),
 
                     ["sultan_notes"] = JournalAPI.SultanNotes
                         .Where(n => n.Revealed)
-                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text })
-                        .ToList(),
+                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text }).ToList(),
 
                     ["village_notes"] = JournalAPI.VillageNotes
                         .Where(n => n.Revealed)
-                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text })
-                        .ToList(),
+                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text }).ToList(),
 
                     ["map_notes"] = JournalAPI.MapNotes
                         .Where(n => n.Revealed)
-                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text })
-                        .ToList()
+                        .Select(o => new Dictionary<string, object> { ["text"] = o.Text }).ToList()
                 };
 
-                WriteJsonRecord(path, record, "Journal");
-
+                ExportWriter.WriteJson("JOURNAL_FILE_PATH", record, "Journal");
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError($"[Narrator] Logging failed: {ex.Message}");
+                Debug.LogError($"[Narrator] ExportJournal failed: {ex.Message}");
             }
         }
-        
+
         public static void ExportDialogue()
         {
-            string path = EnvHelper.GetEnvPath("DIALOGUE_FILE_PATH");
-            
             try
             {
-                string dialoguePath = EnvHelper.GetEnvPath("DIALOGUE_FILE_PATH");
-
                 var data = new Dictionary<string, object>
                 {
                     ["speaker"] = ConversationUI.Speaker?.DisplayName ?? "(unknown)",
@@ -424,21 +384,66 @@ namespace QudStateExtractor
                     }
                 }
 
-                data["choices"] = choices;
-
                 var record = new Dictionary<string, object>
                 {
                     ["timestamp"] = DateTime.UtcNow.ToString("o"),
-                    ["data"] = data
+                    ["data"] = data,
+                    ["choices"] = choices
                 };
 
-                WriteJsonRecord(path, record, "Dialogue");
+                ExportWriter.WriteJson("DIALOGUE_FILE_PATH", record, "Dialogue");
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogError($"[Narrator] Logging failed: {ex.Message}");
+                Debug.LogError($"[Narrator] ExportDialogue failed: {ex.Message}");
             }
         }
-    };
-}
 
+        public static void ExportPointsOfInterest()
+        {
+            try
+            {
+                var player = XRLCore.Core?.Game?.Player?.Body;
+                var zone = player?.CurrentZone;
+                if (player == null || zone == null) return;
+
+                var poiEvent = PooledEvent<GetPointsOfInterestEvent>.FromPool();
+                poiEvent.Actor = player;
+                poiEvent.Zone = zone;
+                poiEvent.List.Clear();
+                zone.HandleEvent(poiEvent);
+
+                var pois = new List<object>();
+                char key = 'a';
+
+                foreach (var poi in poiEvent.List)
+                {
+                    var name = poi.GetDisplayName(player);
+                    var location = poi.Location;
+
+                    pois.Add(new Dictionary<string, object>
+                    {
+                        { "key", key.ToString() },
+                        { "name", name },
+                        { "x", location?.X ?? -1 },
+                        { "y", location?.Y ?? -1 }
+                    });
+
+                    if (key < 'z') key++;
+                }
+
+                var record = new Dictionary<string, object>
+                {
+                    { "timestamp", DateTime.UtcNow.ToString("o") },
+                    { "data", pois }
+                };
+
+                ExportWriter.WriteJson("POINTS_FILE_PATH", record, "Points of Interest");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[Narrator] ExportPointsOfInterest failed: {ex.Message}");
+            }
+        }
+    }
+}
